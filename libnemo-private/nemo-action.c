@@ -1401,8 +1401,10 @@ check_exec_condition (NemoAction *action, const gchar *condition, GList *selecti
 {
     int return_code;
     GPtrArray *array;
+    gchar *exec, *pathed_exec;
     gchar **split;
     gchar **argv;
+    gboolean use_parent_dir;
 
     split = g_strsplit (condition, " ", 2);
 
@@ -1418,25 +1420,23 @@ check_exec_condition (NemoAction *action, const gchar *condition, GList *selecti
 
     array = g_ptr_array_new ();
 
+    strip_custom_modifier (split[1], &use_parent_dir, &exec);
+
+    if (use_parent_dir) {
+        pathed_exec = g_build_path (G_DIR_SEPARATOR_S,
+                                    action->parent_dir,
+                                    exec,
+                                    NULL);
+    } else {
+        pathed_exec = g_strdup (exec);
+    }
+
+    g_free (exec);
+
+    g_ptr_array_add (array, pathed_exec);
+
     if (selection && g_list_length (selection) > 0) {
         GList *iter;
-        gchar *exec, *pathed_exec;
-        gboolean use_parent_dir;
-
-        strip_custom_modifier (split[1], &use_parent_dir, &exec);
-
-        if (use_parent_dir) {
-            pathed_exec = g_build_path (G_DIR_SEPARATOR_S,
-                                        action->parent_dir,
-                                        exec,
-                                        NULL);
-        } else {
-            pathed_exec = g_strdup (exec);
-        }
-
-        g_free (exec);
-
-        g_ptr_array_add (array, pathed_exec);
 
         for (iter = selection; iter != NULL; iter = iter->next) {
             NemoFile *file = NEMO_FILE (iter->data);
@@ -1444,30 +1444,11 @@ check_exec_condition (NemoAction *action, const gchar *condition, GList *selecti
             g_ptr_array_add (array, nemo_file_get_path (file));
         }
 
-        g_ptr_array_add (array, NULL);
-    } else {
-        gchar *exec, *pathed_exec;
-        gboolean use_parent_dir;
-
-        strip_custom_modifier (split[1], &use_parent_dir, &exec);
-
-        if (use_parent_dir) {
-            pathed_exec = g_build_path (G_DIR_SEPARATOR_S,
-                                        action->parent_dir,
-                                        exec,
-                                        NULL);
-        } else {
-            pathed_exec = g_strdup (exec);
-        }
-
-        g_free (exec);
-
-        g_ptr_array_add (array, pathed_exec);
-        g_ptr_array_add (array, NULL);
     }
 
     g_strfreev (split);
 
+    g_ptr_array_add (array, NULL);
     argv = (gchar **) g_ptr_array_free (array, FALSE);
 
     g_spawn_sync (NULL,
