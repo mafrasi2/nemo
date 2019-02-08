@@ -1399,11 +1399,12 @@ check_gsettings_condition (NemoAction *action, const gchar *condition)
 static gboolean
 check_exec_condition (NemoAction *action, const gchar *condition, GList *selection)
 {
-    gchar **split = g_strsplit (condition, " ", 2);
-    char *path;
-    char *command;
-    NemoFile *file;
     int return_code;
+    GPtrArray *array;
+    gchar **split;
+    gchar **argv;
+
+    split = g_strsplit (condition, " ", 2);
 
     if (g_strv_length (split) != 2) {
         g_strfreev (split);
@@ -1415,27 +1416,76 @@ check_exec_condition (NemoAction *action, const gchar *condition, GList *selecti
         return FALSE;
     }
 
+    array = g_ptr_array_new ();
+
     if (selection && g_list_length (selection) > 0) {
-        file = NEMO_FILE (selection->data);
-        path = nemo_file_get_path (file);
-        command = g_strdup_printf ("%s '%s'", split[1], path);
-        g_free (path);
+        GList *iter;
+        gchar *exec, *pathed_exec;
+        gboolean use_parent_dir;
+
+        strip_custom_modifier (split[1], &use_parent_dir, &exec);
+
+        if (use_parent_dir) {
+            pathed_exec = g_build_path (G_DIR_SEPARATOR_S,
+                                        action->parent_dir,
+                                        exec,
+                                        NULL);
+        } else {
+            pathed_exec = g_strdup (exec);
+        }
+
+        g_free (exec);
+
+        g_ptr_array_add (array, pathed_exec);
+
+        for (iter = selection; iter != NULL; iter = iter->next) {
+            NemoFile *file = NEMO_FILE (iter->data);
+
+            g_ptr_array_add (array, nemo_file_get_path (file));
+        }
+
+        g_ptr_array_add (array, NULL);
+    } else {
+        gchar *exec, *pathed_exec;
+        gboolean use_parent_dir;
+
+        strip_custom_modifier (split[1], &use_parent_dir, &exec);
+
+        if (use_parent_dir) {
+            pathed_exec = g_build_path (G_DIR_SEPARATOR_S,
+                                        action->parent_dir,
+                                        exec,
+                                        NULL);
+        } else {
+            pathed_exec = g_strdup (exec);
+        }
+
+        g_free (exec);
+
+        g_ptr_array_add (array, pathed_exec);
+        g_ptr_array_add (array, NULL);
     }
-    else {
-      command = g_strdup (split[1]);
-    }
+
     g_strfreev (split);
 
-    return_code = system (command);
-    printf ("%s returned %d\n", command, return_code);
-    g_free (command);
+    argv = (gchar **) g_ptr_array_free (array, FALSE);
 
-    if (return_code == 0) {
-      return TRUE;
+    g_spawn_sync (NULL,
+                  argv,
+                  NULL,
+                  G_SPAWN_SEARCH_PATH,
+                  NULL, NULL, NULL, NULL,
+                  &return_code,
+                  NULL);
+
+    DEBUG ("Action checking exec condition '%s' returned: %d", argv[0], return_code);
+    if (action->log_output) {
+        g_printerr ("Action checking exec condition '%s' returned: %d\n", argv[0], return_code);
     }
-    else {
-      return FALSE;
-    }
+
+    g_strfreev (argv);
+
+    return (return_code == 0);
 }
 
 static gboolean
